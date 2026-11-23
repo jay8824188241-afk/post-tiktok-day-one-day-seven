@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Star Hop — Day 1 vs Day 7</title>
+<style>
+  body { margin: 0; background: #14102a; display: flex; flex-direction: column;
+         align-items: center; font-family: sans-serif; color: #fff; }
+  h1 { font-size: 20px; margin: 16px 0 4px; }
+  p { margin: 4px 0 12px; color: #cfc8ee; font-size: 14px; }
+  canvas { background: #1a2340; border-radius: 12px; max-width: 96vw; }
+  .row { display: flex; gap: 8px; margin: 10px 0; }
+  button { padding: 8px 16px; border: 0; border-radius: 999px; cursor: pointer;
+           font-weight: 700; background: #c41c83; color: #fff; }
+  button.off { background: #3a3458; }
+</style>
+</head>
+<body>
+<h1>Star Hop — Day 1 vs Day 7</h1>
+<p>Same map, same start. Day 1: one ghost, one star. Day 7: enemies, stars, particles, HUD. Arrow keys / A D to move, Space to jump.</p>
+<div class="row">
+  <button id="b1">Day 1</button>
+  <button id="b7" class="off">Day 7</button>
+</div>
+<canvas id="game" width="1000" height="960"></canvas>
+<script type="module">
+import { MAP, ghostAt, enemyAt, collectedStars, scoreAt, hasWon } from './game.js';
+
+const cv = document.getElementById('game');
+const ctx = cv.getContext('2d');
+let day = 1;
+let t = 0;
+let last = performance.now();
+const keys = {};
+
+document.getElementById('b1').onclick = () => { day = 1; t = 0; sync(); };
+document.getElementById('b7').onclick = () => { day = 7; t = 0; sync(); };
+function sync() {
+  document.getElementById('b1').classList.toggle('off', day !== 1);
+  document.getElementById('b7').classList.toggle('off', day !== 7);
+}
+addEventListener('keydown', (e) => { keys[e.key] = true; if (e.key === ' ') e.preventDefault(); });
+addEventListener('keyup', (e) => { keys[e.key] = false; });
+
+function drawStar(cx, cy, r, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const rr = i % 2 === 0 ? r : r * 0.45;
+    ctx[i === 0 ? 'moveTo' : 'lineTo'](cx + Math.cos(a) * rr, cy + Math.sin(a) * rr);
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawGhost(x, y) {
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(x, y - 18, 26, Math.PI, 0);
+  ctx.lineTo(x + 26, y + 14);
+  for (let i = 0; i < 3; i++) {
+    ctx.arc(x + 26 - (i + 0.5) * (52 / 3), y + 14, 52 / 6, 0, Math.PI);
+  }
+  ctx.lineTo(x - 26, y - 18);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#191419';
+  ctx.beginPath(); ctx.arc(x - 9, y - 22, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + 9, y - 22, 5, 0, Math.PI * 2); ctx.fill();
+}
+
+function frame(now) {
+  const dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+  t += dt;
+  const g = ghostAt(t % 13);
+  const tt = t % 13;
+
+  // Sky
+  const sky = ctx.createLinearGradient(0, 0, 0, 960);
+  if (day === 1) { sky.addColorStop(0, '#1a2340'); sky.addColorStop(1, '#1a2340'); }
+  else { sky.addColorStop(0, '#2b1055'); sky.addColorStop(0.6, '#7597de'); sky.addColorStop(1, '#c41c83'); }
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, 1000, 960);
+  if (day === 7) {
+    ctx.fillStyle = '#ffffff';
+    for (let i = 0; i < 40; i++) {
+      const sx = (i * 173) % 1000, sy = (i * 97) % 320;
+      ctx.globalAlpha = 0.4 + 0.6 * Math.abs(Math.sin(t * 2 + i));
+      ctx.fillRect(sx, sy, 3, 3);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Platforms and ground
+  ctx.fillStyle = day === 1 ? '#2c3a5e' : '#3f7d4e';
+  for (const p of MAP.platforms) ctx.fillRect(p.x, p.y, p.w, 26);
+  ctx.fillStyle = day === 1 ? '#232f4d' : '#2e5d3a';
+  ctx.fillRect(0, MAP.groundY, 1000, 100);
+  if (day === 7) {
+    ctx.fillStyle = '#57a86b';
+    ctx.fillRect(0, MAP.groundY, 1000, 14);
+    for (const p of MAP.platforms) { ctx.fillStyle = '#57a86b'; ctx.fillRect(p.x, p.y, p.w, 8); }
+  }
+
+  // Stars
+  const got = collectedStars(tt, day);
+  MAP.stars.forEach((s, i) => {
+    if (day === 1 && i > 0) return;
+    if (got[i]) return;
+    drawStar(s.x, s.y + Math.sin(t * 3 + i) * 5, 20, '#ffd94a');
+  });
+
+  // Goal star (Day 7 only)
+  if (day === 7) drawStar(MAP.goal.x, MAP.goal.y + Math.sin(t * 2) * 6, 30, '#ffe98a');
+
+  // Enemies (Day 7 only)
+  if (day === 7) {
+    for (const e of MAP.enemies) {
+      const p = enemyAt(e, tt);
+      ctx.fillStyle = '#e63946';
+      ctx.beginPath(); ctx.arc(p.x, p.y, 24, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(p.x - 8, p.y - 6, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(p.x + 8, p.y - 6, 5, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  drawGhost(g.x, g.y);
+
+  // HUD (Day 7 only)
+  if (day === 7) {
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 30px sans-serif';
+    ctx.fillText('SCORE ' + scoreAt(tt, 7), 24, 48);
+    ctx.fillText('♥♥♥', 820, 48);
+    ctx.fillText('DAY 7', 440, 48);
+    if (hasWon(tt)) {
+      ctx.font = 'bold 72px sans-serif';
+      ctx.fillStyle = '#ffd94a';
+      ctx.fillText('YOU WIN!', 300, 460);
+    }
+  } else {
+    ctx.fillStyle = '#8b93b8';
+    ctx.font = 'bold 30px sans-serif';
+    ctx.fillText('DAY 1', 440, 48);
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
